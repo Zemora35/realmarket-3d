@@ -16,6 +16,9 @@ on:
         default: '60'
   schedule:
     - cron: '0 3 * * 1'
+  # yük testi betiği veya iş akışı değişince (her dalda) varsayılan aşamalarla yeniden ölçülür
+  push:
+    paths: ['tests/load/**', '.github/workflows/load-test.yml']
 
 permissions:
   contents: read
