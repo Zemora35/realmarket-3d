@@ -1,0 +1,36 @@
+# İsteğe bağlı: gerçek PostgreSQL + MinIO (S3 uyumlu depolama).
+# Varsayılan geliştirme ortamı Docker gerektirmez (gömülü PGlite kullanılır).
+# Kullanım:
+#   docker compose -f infrastructure/docker/docker-compose.yml up -d
+#   .env içinde: DATABASE_URL=postgres://realmarket:realmarket@localhost:5432/realmarket
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: realmarket
+      POSTGRES_PASSWORD: realmarket
+      POSTGRES_DB: realmarket
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U realmarket']
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: realmarket
+      MINIO_ROOT_PASSWORD: realmarket-dev-only
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:

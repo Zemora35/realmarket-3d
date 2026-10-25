@@ -1,0 +1,22 @@
+{
+  "name": "@realmarket/engine-3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@realmarket/product-modeler": "workspace:*",
+    "@realmarket/shared": "workspace:*",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0"
+  }
+}

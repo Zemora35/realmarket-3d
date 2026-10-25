@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.data/
+storage/
+coverage/
+playwright-report/
+test-results/
+test-results-e2e.log
+*.log
+.env
+.env.local
+.DS_Store
+.vite/
+*.tsbuildinfo

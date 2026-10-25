@@ -1,0 +1,40 @@
+{
+  "name": "realmarket-3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RealMarket 3D — gerçekçi sanal süpermarket platformu (monorepo)",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @realmarket/api --filter @realmarket/web --filter @realmarket/admin dev",
+    "dev:api": "pnpm --filter @realmarket/api dev",
+    "dev:web": "pnpm --filter @realmarket/web dev",
+    "dev:admin": "pnpm --filter @realmarket/admin dev",
+    "build": "pnpm --filter @realmarket/web --filter @realmarket/admin build",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:generate": "pnpm --filter @realmarket/database db:generate",
+    "db:reset": "pnpm --filter @realmarket/api db:reset",
+    "import:off": "tsx tools/data-import/off-import.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "@realmarket/product-catalog": "workspace:*",
+    "@realmarket/shared": "workspace:*",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
