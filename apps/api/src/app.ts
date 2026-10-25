@@ -11,7 +11,9 @@ import {
 } from 'fastify-type-provider-zod';
 import type { AppContext } from './context';
 import { HttpError } from './errors';
+import { registerCors } from './cors';
 import { adminRoutes } from './routes/admin';
+import { modelRoutes } from './routes/models';
 import { publicRoutes } from './routes/public';
 import { shoppingRoutes } from './routes/shopping';
 
@@ -51,8 +53,10 @@ export async function buildApp(ctx: AppContext, opts: { logger?: boolean } = {})
     return reply.code(500).send({ error: 'INTERNAL', message: 'Beklenmeyen sunucu hatası' });
   });
 
+  registerCors(app, ctx.corsOrigins ?? []);
   await app.register(publicRoutes(ctx));
   await app.register(shoppingRoutes(ctx));
   await app.register(adminRoutes(ctx));
+  if (ctx.modelsDir) await app.register(modelRoutes(ctx.modelsDir));
   return app;
 }

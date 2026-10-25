@@ -49,8 +49,25 @@ pnpm db:generate  # şema değişince yeni migration
 pnpm import:off -- --input openfoodfacts-products.jsonl.gz --output tr.jsonl --country en:turkey
 ```
 
+## Unity Web sürümü ve web sitesi
+
+Unity 6 LTS (URP) istemcisi `unity/RealMarket3D` altındadır ve **bulutta** (GitHub Actions + GameCI)
+derlenir; yerelde Unity Editor gerekmez. Ayrıntılar ve lisans adımları: [docs/UNITY_WEB.md](docs/UNITY_WEB.md).
+
+```powershell
+node tools/model-export/export.mjs                       # ürün GLB modelleri (API + web dev çalışırken)
+node tools/site-dev/serve.mjs                            # web sitesi: http://localhost:5180
+dotnet test unity/RealMarket.Core.Tests                  # Unity çekirdek mantığı (.NET)
+npx playwright test -c tests/site/playwright.config.ts   # site + köprü testleri (masaüstü + mobil)
+node tests/load/load-test.mjs --users 100 --duration 30  # API yük testi
+```
+
+Unity derlemesi yoksa site `/market` sayfasında Three.js istemcisini açar.
+
 ## Belgeler
 
+- [docs/UNITY_WEB.md](docs/UNITY_WEB.md) — Unity Web mimarisi, köprü protokolü, test matrisi, Render Streaming değerlendirmesi
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Docker/Caddy/PostgreSQL üretim yığını, CI/CD, barındırma maliyetleri
 - [ARCHITECTURE.md](ARCHITECTURE.md) — mimari, modüller, veri akışı, performans yaklaşımı
 - [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md) — faz durumu, kabul kriterleri
 - [TASKS.md](TASKS.md) — kalan işler

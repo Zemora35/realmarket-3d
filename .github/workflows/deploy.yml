@@ -1,0 +1,135 @@
+name: Yayın paketi ve dağıtım
+
+# 1) API Docker imajını GHCR'ye yayımlar (ghcr.io/<sahip>/realmarket-3d-api).
+# 2) Statik yayın paketini üretir: site + Unity WebGL (varsa son başarılı derleme) + Three.js yedek
+#    istemci (/3d/) + yönetim paneli (/admin/) + ürün GLB modelleri + compose/Caddy dosyaları.
+# 3) DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY secret'ları tanımlıysa paketi SSH ile sunucuya
+#    kopyalar ve `docker compose up -d` çalıştırır. Tanımlı değilse dağıtım adımı atlanır —
+#    gerçek bir sunucuya yayın yapılmış sayılmaz.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+jobs:
+  image:
+    name: API imajı → GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/realmarket-3d-api" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/api.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: İmaj duman testi (PGlite ile açılış)
+        run: |
+          docker run -d --name api -p 3001:3001 -e NODE_ENV=production -e AUTH_SECRET=ci-smoke-$(openssl rand -hex 8) -e SEED_ADMIN_PASSWORD=ci-$(openssl rand -hex 8) -e PGLITE_DIR=/tmp/pglite ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3001/api/health && exit 0; sleep 2; done
+          docker logs api; exit 1
+
+  bundle:
+    name: Statik yayın paketi
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Three.js istemcisi (/3d/) ve yönetim paneli (/admin/)
+        run: |
+          pnpm --filter @realmarket/web exec vite build --base=/3d/ --outDir ../../release/public/three --emptyOutDir
+          pnpm --filter @realmarket/admin exec vite build --base=/admin/ --outDir ../../release/public/admin --emptyOutDir
+      - name: Web sitesi
+        run: mkdir -p release/public && cp -r apps/site release/public/site
+      - name: Ürün modelleri (GLB)
+        run: |
+          npx playwright install --with-deps chromium
+          nohup pnpm --filter @realmarket/api start > api.log 2>&1 &
+          nohup pnpm --filter @realmarket/web dev > web.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf http://127.0.0.1:3001/api/health >/dev/null && curl -sf http://localhost:5173/model-export.html >/dev/null && break; sleep 2; done
+          node tools/model-export/export.mjs --out release/public/models
+      - name: Son başarılı Unity WebGL derlemesi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release/public/unity
+          RUN_ID=$(gh run list --workflow unity.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+          if [ -n "$RUN_ID" ] && gh run download "$RUN_ID" -n unity-webgl -D release/public/unity; then
+            echo "Unity derlemesi eklendi (run $RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Başarılı Unity derlemesi yok — site /market sayfasında Three.js yedeğini açacak."
+            echo "Unity derlemesi YOK: /market Three.js yedeğini kullanır." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Sunucu dosyaları
+        run: |
+          cp infrastructure/docker/docker-compose.prod.yml release/
+          cp infrastructure/caddy/Caddyfile release/
+          cp .env.production.example release/.env.example
+          du -sh release/public/* | tee -a "$GITHUB_STEP_SUMMARY"
+          tar -czf realmarket-release.tar.gz -C release .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realmarket-release
+          path: realmarket-release.tar.gz
+          retention-days: 30
+
+  deploy:
+    name: Sunucuya dağıtım (SSH, isteğe bağlı)
+    needs: [image, bundle]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - id: check
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -n "$HOST" ] && [ -n "$KEY" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "### Dağıtım atlandı" >> "$GITHUB_STEP_SUMMARY"
+            echo "DEPLOY_HOST, DEPLOY_USER ve DEPLOY_SSH_KEY secret'ları tanımlı değil. Yayın paketi artefakt olarak hazır." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.check.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: realmarket-release
+      - if: steps.check.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DIR: ${{ vars.DEPLOY_DIR || '/opt/realmarket' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          if [ -n "$KNOWN_HOSTS" ]; then echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts; else ssh-keyscan -H "$HOST" > ~/.ssh/known_hosts; fi
+          scp -i ~/.ssh/id_deploy realmarket-release.tar.gz "$USER@$HOST:/tmp/"
+          ssh -i ~/.ssh/id_deploy "$USER@$HOST" "set -e; mkdir -p '$DIR'; tar -xzf /tmp/realmarket-release.tar.gz -C '$DIR'; cd '$DIR'; test -f .env || { echo '.env yok: .env.example dosyasından oluşturun'; exit 1; }; docker compose -f docker-compose.prod.yml --env-file .env pull api; docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans; docker compose -f docker-compose.prod.yml ps"
