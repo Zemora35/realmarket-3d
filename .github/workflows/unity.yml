@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       webgpu:
-        description: 'Deneysel WebGPU grafik API'si (WebGL2 yedekli)'
+        description: "Deneysel WebGPU grafik API'si (WebGL2 yedekli)"
         type: boolean
         default: false
 
