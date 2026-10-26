@@ -121,7 +121,12 @@ namespace RealMarket.Runtime
                 var cs = Scene.Layout.CartSpawn ?? sp;
                 var cartGo = new GameObject("ShoppingCart", typeof(Rigidbody));
                 Cart = cartGo.AddComponent<ShoppingCartController>();
-                Cart.Init(Player, Products, materials, new Vector3(cs.Position.X, 0, cs.Position.Z + 0.4f), PlanogramMath.YawDegrees(cs.RotationY));
+                // araba oyuncunun sağ önünde durur: ilk adımda önünü kesmez, C ile hemen tutulabilir
+                float spawnYaw = PlanogramMath.YawDegrees(sp.RotationY) * Mathf.Deg2Rad;
+                var right = new Vector3(Mathf.Cos(spawnYaw), 0, -Mathf.Sin(spawnYaw));
+                var fwd = new Vector3(Mathf.Sin(spawnYaw), 0, Mathf.Cos(spawnYaw));
+                var cartPos = new Vector3(sp.Position.X, 0, sp.Position.Z) + right * 0.95f + fwd * 0.5f;
+                Cart.Init(Player, Products, materials, cartPos, PlanogramMath.YawDegrees(cs.RotationY));
 
                 Quality.Init(this, postVolume);
                 Quality.Changed += (p, auto) => UI.SetQualityLabel(p, auto);
@@ -136,6 +141,9 @@ namespace RealMarket.Runtime
                 }
                 var cart = await Session.Resume(pageSession);
                 ApplyCart(cart);
+
+                UI.SetLoading("Görüntü hazırlanıyor…", 0.92f);
+                await WarmUpRendering();
 
                 Ready = true;
                 UI.SetLoading("Hazır", 1f);
@@ -157,6 +165,35 @@ namespace RealMarket.Runtime
         }
 
         public void Restart() => UnityEngine.SceneManagement.SceneManager.LoadScene(0);
+
+        /**
+         * Gölgelendirici ısınması. WebGL'de bir malzeme/varyant ilk kez çizildiğinde derlenir; Intel
+         * tümleşik GPU'da (ANGLE/D3D11) bu tek karede 300–600 ms takılmaya yol açıyordu. Yükleme ekranı
+         * açıkken kamera bir tur döner, tüm fiyat etiketleri ve eldeki ürün çizimi (instancing'siz
+         * varyant) birer kez çizilir; böylece derlemeler oyun başlamadan biter.
+         */
+        async Task WarmUpRendering()
+        {
+            float yaw0 = Player.Yaw;
+            ProductInfo sample = null;
+            foreach (var p in Products.Products.Values) { sample = p; break; }
+            Shelves.ShowAllTags(true);
+            for (int i = 0; i < 16; i++)
+            {
+                Player.SetLook(yaw0 + i * 22.5f, (i % 4) * 10f - 10f);
+                if (sample != null)
+                {
+                    var cam = Player.Cam.transform;
+                    for (int lod = 0; lod < 4; lod++)
+                        Products.DrawSingle(sample, lod, Matrix4x4.TRS(cam.position + cam.forward * (0.7f + lod * 0.2f), cam.rotation, Vector3.one), true);
+                    // sabit boyutlu instancing programı (ileri + gölge geçişi) — her profil için önceden derlensin
+                    Products.WarmUpInstanced(sample, Matrix4x4.TRS(cam.position + cam.forward * 1.6f, cam.rotation, Vector3.one));
+                }
+                await Awaitable.NextFrameAsync();
+            }
+            Shelves.ShowAllTags(false);
+            Player.SetLook(yaw0, 0f);
+        }
 
         void Update()
         {
@@ -326,6 +363,14 @@ namespace RealMarket.Runtime
                 case BridgeEvents.DebugAct:
                     if (Ready && Config.Debug && Enum.TryParse((string)payload["act"] ?? "", true, out Act act)) MobileInput.Press(act);
                     break;
+                case BridgeEvents.DebugToggle:
+                    // takılma tanılaması: alt sistemleri tek tek kapatıp ölçmek için
+                    if (!Ready || !Config.Debug) break;
+                    if (payload["products"] != null) Products.RenderEnabled = (bool)payload["products"];
+                    if (payload["tags"] != null) Shelves.TagsEnabled = (bool)payload["tags"];
+                    if (payload["streaming"] != null) Streaming.Enabled = (bool)payload["streaming"];
+                    if (payload["shadows"] != null && Market.Sun != null) Market.Sun.shadows = (bool)payload["shadows"] ? LightShadows.Soft : LightShadows.None;
+                    break;
             }
         }
 
@@ -372,6 +417,10 @@ namespace RealMarket.Runtime
                 d["modelsLoaded"] = Streaming.Loaded; d["modelsFailed"] = Streaming.Failed;
                 d["cartItems"] = LastCart?.ItemCount ?? 0; d["cartTotalKurus"] = LastCart?.TotalKurus ?? 0;
                 d["cartGrabbed"] = Cart.Grabbed; d["sessionId"] = Session.Current?.SessionId ?? "";
+                d["lod1"] = Products.DrawnPerLod[1]; d["lod2"] = Products.DrawnPerLod[2]; d["lod3"] = Products.DrawnPerLod[3];
+                d["triangles"] = Products.Triangles; d["tagsActive"] = Shelves.ActiveTags;
+                d["monoMB"] = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong() / 1048576f;
+                d["frame"] = Time.frameCount;
             }
             Bridge.Emit(BridgeEvents.DebugState, d);
         }

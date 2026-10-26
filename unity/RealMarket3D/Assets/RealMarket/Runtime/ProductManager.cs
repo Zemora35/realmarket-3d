@@ -28,6 +28,19 @@ namespace RealMarket.Runtime
         public int DrawnInstances { get; private set; }
         public int DrawCalls { get; private set; }
         public bool CastShadows = true;
+        /** Tanılama (DEBUG_TOGGLE): ürün çizimini kapatıp açar; sayaçlar yine hesaplanır. */
+        public bool RenderEnabled = true;
+        public readonly int[] DrawnPerLod = new int[4];
+        public long Triangles { get; private set; }
+
+        static int FallbackTriangles(ModelLod m)
+        {
+            if (m.Triangles > 0) return m.Triangles;
+            int t = 0;
+            foreach (var p in m.Parts) for (int s = 0; s < p.Mesh.subMeshCount; s++) t += (int)(p.Mesh.GetIndexCount(s) / 3);
+            m.Triangles = t;
+            return t;
+        }
 
         MaterialLibrary library;
         AssetStreamingManager streaming;
@@ -37,7 +50,16 @@ namespace RealMarket.Runtime
         readonly Dictionary<string, List<Matrix4x4>>[] frame = { null, new Dictionary<string, List<Matrix4x4>>(), new Dictionary<string, List<Matrix4x4>>(), new Dictionary<string, List<Matrix4x4>>() };
         readonly Plane[] planes = new Plane[6];
         readonly List<Matrix4x4> scratch = new List<Matrix4x4>(1024);
-        const int MaxPerCall = 511;
+        /**
+         * Sabit instancing parça boyutu. Unity WebGL, instancing programını çizimdeki kopya sayısına göre
+         * 32'şer adımlı farklı dizi boyutlarıyla (32…448) derliyor; yeni bir boyut ilk kez gerektiğinde
+         * Intel/ANGLE'da 0,5–0,8 sn takılma oluyordu. Her çizim tam Chunk kopya ile yapılır (eksik kısım
+         * görünmez kopyalarla doldurulur) → geçiş başına tek program, ısınma turunda önceden derlenir.
+         */
+        public const int Chunk = 64;
+        readonly Matrix4x4[] padded = new Matrix4x4[Chunk];
+        /** Dolgu kopyası: zeminin çok altında, neredeyse sıfır ölçek (görüş konisi dışında kalır). */
+        static readonly Matrix4x4 Hidden = Matrix4x4.TRS(new Vector3(0, -1000f, 0), Quaternion.identity, Vector3.one * 1e-4f);
 
         class ShelfBatch
         {
@@ -121,6 +143,8 @@ namespace RealMarket.Runtime
             return m ?? p.Fallback[Mathf.Clamp(lod, 0, 3)];
         }
 
+        float nextModelRequest;
+
         void LateUpdate()
         {
             var cam = Camera.main;
@@ -129,6 +153,9 @@ namespace RealMarket.Runtime
             Vector3 eye = cam.transform.position;
             float maxD = profile.MaxProductDistance;
             for (int l = 1; l <= 3; l++) foreach (var list in frame[l].Values) list.Clear();
+            // model isteklerini her karede değil 0,25 sn'de bir yenile (kuyruk önceliği taraması pahalı)
+            bool requestModels = streaming != null && Time.unscaledTime >= nextModelRequest;
+            if (requestModels) nextModelRequest = Time.unscaledTime + 0.25f;
 
             foreach (var b in batches)
             {
@@ -142,26 +169,32 @@ namespace RealMarket.Runtime
                     int prev = b.Lod.TryGetValue(kv.Key, out var pl) ? pl : 2;
                     int lod = LodSelector.Select(dist, size, prev, profile.LodMid, profile.LodFar, profile.LodHysteresis);
                     b.Lod[kv.Key] = lod;
-                    if (streaming != null && streaming.HasModel(kv.Key)) streaming.Request(kv.Key, lod, dist);
+                    if (requestModels && streaming.HasModel(kv.Key)) streaming.Request(kv.Key, lod, dist);
                     if (!frame[lod].TryGetValue(kv.Key, out var target)) frame[lod][kv.Key] = target = new List<Matrix4x4>();
                     target.AddRange(kv.Value);
                 }
             }
 
             int drawn = 0, calls = 0;
+            long tris = 0;
             for (int lod = 1; lod <= 3; lod++)
             {
+                int perLod = 0;
                 foreach (var kv in frame[lod])
                 {
                     if (kv.Value.Count == 0) continue;
                     var model = ModelFor(Products[kv.Key], lod);
                     var shadows = CastShadows && lod == 1 ? ShadowCastingMode.On : ShadowCastingMode.Off;
-                    calls += DrawInstanced(model, kv.Value, shadows);
+                    if (RenderEnabled) calls += DrawInstanced(model, kv.Value, shadows);
                     drawn += kv.Value.Count;
+                    perLod += kv.Value.Count;
+                    tris += (long)kv.Value.Count * Mathf.Max(model.Triangles, FallbackTriangles(model));
                 }
+                DrawnPerLod[lod] = perLod;
             }
             DrawnInstances = drawn;
             DrawCalls = calls;
+            Triangles = tris;
         }
 
         int DrawInstanced(ModelLod model, List<Matrix4x4> instances, ShadowCastingMode shadows)
@@ -181,16 +214,49 @@ namespace RealMarket.Runtime
                 {
                     var mat = part.Materials[Mathf.Min(s, part.Materials.Length - 1)];
                     if (mat == null) continue;
-                    var rp = new RenderParams(mat) { shadowCastingMode = shadows, receiveShadows = true, layer = 0 };
-                    for (int start = 0; start < data.Count; start += MaxPerCall)
+                    var rp = InstancedParams(mat, shadows);
+                    for (int start = 0; start < data.Count; start += Chunk)
                     {
-                        Graphics.RenderMeshInstanced(rp, part.Mesh, s, data, Mathf.Min(MaxPerCall, data.Count - start), start);
+                        int n = data.Count - start;
+                        if (n >= Chunk)
+                        {
+                            Graphics.RenderMeshInstanced(rp, part.Mesh, s, data, Chunk, start);
+                        }
+                        else
+                        {
+                            for (int i = 0; i < Chunk; i++) padded[i] = i < n ? data[start + i] : Hidden;
+                            Graphics.RenderMeshInstanced(rp, part.Mesh, s, padded, Chunk, 0);
+                        }
                         calls++;
                     }
                 }
             }
             return calls;
         }
+
+        /** Isınma: örnek ürünün her LOD'unu instancing ile (gölge geçişi dahil) bir kez çizer. */
+        public int WarmUpInstanced(ProductInfo p, Matrix4x4 at)
+        {
+            var one = new List<Matrix4x4> { at };
+            int calls = 0;
+            for (int lod = 1; lod <= 3; lod++) calls += DrawInstanced(ModelFor(p, lod), one, ShadowCastingMode.On);
+            return calls;
+        }
+
+        /**
+         * Tüm ürün çizimlerinde sabit çizim ayarı. Işık yoklaması belirtilmezse Unity bazı gruplar için
+         * örnek başına ışık yoklamalı (unity_SH*Array) ayrı bir program varyantı seçiyordu; o grup ilk kez
+         * göründüğünde Intel/ANGLE'da ~0,6 sn derleme takılması oluşuyordu. Mağazada ışık yoklaması yok:
+         * ortam ışığı (Off = sahne ortam yoklaması) aynı sonucu tek, önceden ısıtılan bir varyantla verir.
+         */
+        static RenderParams InstancedParams(Material mat, ShadowCastingMode shadows) => new RenderParams(mat)
+        {
+            shadowCastingMode = shadows,
+            receiveShadows = true,
+            layer = 0,
+            lightProbeUsage = LightProbeUsage.Off,
+            reflectionProbeUsage = ReflectionProbeUsage.Off,
+        };
 
         /** Tek ürün çizimi (elde tutulan, sepetteki ürünler). */
         public void DrawSingle(ProductInfo p, int lod, Matrix4x4 m, bool shadows = false)
@@ -203,7 +269,7 @@ namespace RealMarket.Runtime
                 {
                     var mat = part.Materials[Mathf.Min(s, part.Materials.Length - 1)];
                     if (mat == null) continue;
-                    var rp = new RenderParams(mat) { shadowCastingMode = shadows ? ShadowCastingMode.On : ShadowCastingMode.Off, receiveShadows = true };
+                    var rp = InstancedParams(mat, shadows ? ShadowCastingMode.On : ShadowCastingMode.Off);
                     Graphics.RenderMesh(rp, part.Mesh, s, mm);
                 }
             }

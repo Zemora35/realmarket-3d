@@ -162,6 +162,32 @@ Kabul hedefleri: Build klasörü < 25 MB sıkıştırılmış (✅ 11,9 MB); mas
 (✅ 144 fps, GTX 1650); orta seviye Android'de Düşük profilde ≥ 30 fps ve bellek < 1 GB (⏳ gerçek
 cihazda ölçülmedi).
 
+## Akıcılık (takılma) analizi — Intel UHD, varsayılan tarayıcı ayarı
+
+Tarayıcılar dizüstü bilgisayarda varsayılan olarak tümleşik GPU'yu (Intel UHD) kullanır. Ölçüm:
+`node tests/unity/perf.mjs --gpu default --timeline` (W basılı yürüyüp dönerken her kare süresi).
+Kök neden tarayıcı izlemesiyle (`tests/unity/trace-hitch.mjs`, CDP Tracing) bulundu:
+
+1. **Instancing dizi boyutu varyantları.** Unity WebGL, instancing programını çizimdeki kopya sayısına
+   göre 32'şer adımlı farklı dizi boyutlarıyla (32…448) derliyor. Yürürken bir ürün grubu yeni bir
+   aralığa girince yeni program bağlanıyor; ANGLE köşe gölgelendiricisini D3D11 için ~600 ms'de derliyor
+   (`Program::MainLinkLoadEvent::wait` → `GetVertexExecutableTask` → `D3DCompile`). Çözüm: tüm ürün
+   çizimleri sabit 64'lük parçalarla yapılır (eksik kısım görünmez kopyalarla doldurulur), yükleme
+   ekranında ısınma turu ileri + gölge geçişini önceden derler.
+2. **Işık yoklaması ve SSAO.** Ürün çizimleri ışık yoklaması kapalı tek sabit varyanta bağlandı; SSAO
+   anahtarı URP 17.6'da çalışmıyordu (iç alan adı değişmiş), renderer referansıyla düzeltildi.
+3. **Kalite önerisi.** Tümleşik GPU artık Düşük ile başlar; otomatik ayar p90 kare süresine bakar.
+
+| Intel UHD, 10–12 sn yürüyüş | Önce | Sonra |
+| --- | --- | --- |
+| En uzun kare | 1.263 ms | 69 ms |
+| 50 ms'yi aşan kare | 5 | 1 |
+| Ortalama fps | 112 | 121 |
+| Unity açılışı (uçtan uca test, masaüstü) | 19,7 sn | 7,1 sn |
+
+GTX 1650 (yüksek performanslı GPU) ile Orta profilde 133 fps, p99 14 ms. Daha akıcı bir deneyim için
+Windows → Ayarlar → Sistem → Ekran → Grafik bölümünden tarayıcıya "Yüksek performans" seçilebilir.
+
 ## Unity Render Streaming değerlendirmesi
 
 Render Streaming, sahneyi sunucuda GPU ile çizip WebRTC ile video olarak gönderir.

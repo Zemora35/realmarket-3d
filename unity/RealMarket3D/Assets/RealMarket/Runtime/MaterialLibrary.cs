@@ -17,6 +17,8 @@ namespace RealMarket.Runtime
         public Material Emissive;
         public Material Unlit;
         public Material TextMaterial;
+        /** URP renderer verisi (SSAO gibi özellikleri kalite profiline göre açıp kapatmak için; BuildScript bağlar). */
+        public UnityEngine.Rendering.Universal.ScriptableRendererData Renderer;
 
         readonly Dictionary<string, Material> cache = new Dictionary<string, Material>();
 

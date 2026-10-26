@@ -39,3 +39,6 @@ unity/RealMarket.Core.Tests/TestResults/
 /release/
 realmarket-release.tar.gz
 load-report.json
+
+# graphify bilgi grafiği çıktıları (yerelde üretilir)
+graphify-out/
