@@ -97,6 +97,14 @@ namespace RealMarket.Runtime
         }
 
         public float Yaw => yaw;
+        public float Pitch => pitch;
+
+        /** Bakış yönünü doğrudan ayarlar (köprü test komutu DEBUG_LOOK). */
+        public void SetLook(float yawDeg, float pitchDeg)
+        {
+            yaw = yawDeg;
+            pitch = Mathf.Clamp(pitchDeg, -80f, 80f);
+        }
 
         public void Teleport(Vector3 p, float yawDeg)
         {

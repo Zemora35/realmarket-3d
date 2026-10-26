@@ -88,6 +88,11 @@ namespace RealMarket.Core
         public const string SetQuality = "SET_QUALITY";
         public const string NavigateTo = "NAVIGATE_TO";
 
+        /** Yalnızca ?debug=1 ile açılan test komutları (otomatik uçtan uca testler için) */
+        public const string DebugState = "DEBUG_STATE";
+        public const string DebugLook = "DEBUG_LOOK";
+        public const string DebugAct = "DEBUG_ACT";
+
         public static string Envelope(string type, object payload) =>
             Json.Write(new BridgeMessage { Type = type, Payload = payload, Version = 1 });
     }

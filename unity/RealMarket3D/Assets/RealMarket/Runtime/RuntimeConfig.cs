@@ -15,6 +15,8 @@ namespace RealMarket.Runtime
         public string StoreId = "demo-market";
         public string Quality = "";
         public bool Embedded;
+        /** ?debug=1: köprü test komutları (DEBUG_*) açılır. Üretim sayfası bu bayrağı eklemez. */
+        public bool Debug;
 
         public static RuntimeConfig FromEnvironment()
         {
@@ -35,6 +37,7 @@ namespace RealMarket.Runtime
                     if (key == "api" && IsSafeApi(value)) c.ApiBase = value.TrimEnd('/');
                     else if (key == "store" && IsSafeId(value)) c.StoreId = value;
                     else if (key == "quality") c.Quality = value;
+                    else if (key == "debug") c.Debug = value == "1" || value == "true";
                 }
             }
 #if UNITY_EDITOR

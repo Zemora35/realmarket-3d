@@ -90,6 +90,8 @@ export async function startUnity(canvas, opts = {}) {
     // mobilde piksel yoğunluğu sınırlanır (pil/ısı)
     devicePixelRatio: mobile ? Math.min(window.devicePixelRatio || 1, 1.5) : undefined,
     matchWebGLToCanvasSize: true,
+    // PlayerPrefs (oturum yedeği) IndexedDB'ye kendiliğinden eşitlenir (Unity 6.6 önerisi)
+    autoSyncPersistentDataPath: true,
   };
   // Unity çalışma zamanı, API adresini ve mağazayı sayfa adresinden okur (RuntimeConfig)
   if (!query.has('store')) query.set('store', loadSession()?.storeId || 'demo-market');

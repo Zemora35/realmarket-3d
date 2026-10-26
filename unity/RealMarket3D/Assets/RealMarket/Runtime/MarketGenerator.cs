@@ -247,6 +247,12 @@ namespace RealMarket.Runtime
                 Part(rail, o, rot, new Vector3(0, lv.HeightM - 0.025f, d / 2 + 0.006f), new Vector3(w - 0.04f, 0.04f, 0.012f));
         }
 
+        static Mesh labelQuad;
+        /** −z'ye bakan (TextMesh ile aynı yön) 1×1 dörtgen; tüm etiket arka planları paylaşır. */
+        static Mesh LabelQuad => labelQuad != null ? labelQuad : (labelQuad = new MeshBuilder()
+            .Quad(new Vector3(-0.5f, -0.5f, 0), new Vector3(-0.5f, 0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.5f, -0.5f, 0))
+            .ToMesh("label-quad"));
+
         public static TextMesh Label(string text, Vector3 pos, Quaternion rot, float charHeight, Color fg, Color bg, float bgW, float bgH, Transform parent = null)
         {
             var go = new GameObject("Label");
@@ -257,7 +263,8 @@ namespace RealMarket.Runtime
             tm.text = text;
             tm.font = UIManager.DefaultFont;
             tm.fontSize = 64;
-            tm.characterSize = charHeight / 64f * 1.6f;
+            // TextMesh satır yüksekliği (dünya birimi) ≈ characterSize × fontSize / 10
+            tm.characterSize = charHeight * 10f / tm.fontSize;
             tm.anchor = TextAnchor.MiddleCenter;
             tm.alignment = TextAlignment.Center;
             tm.color = fg;
@@ -266,12 +273,16 @@ namespace RealMarket.Runtime
             mr.shadowCastingMode = ShadowCastingMode.Off;
             if (bg.a > 0 && bgW > 0)
             {
-                var back = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                Destroy(back.GetComponent<Collider>());
+                // CreatePrimitive kullanılmaz: otomatik eklediği MeshCollider sınıfı WebGL kod kırpmasında
+                // çıkarılıyor ve her etikette hata basıyordu. Collider'sız paylaşılan dörtgen yeterli.
+                var back = new GameObject("LabelBack");
                 back.transform.SetParent(go.transform, false);
                 back.transform.localPosition = new Vector3(0, 0, 0.004f);
                 back.transform.localScale = new Vector3(bgW, bgH, 1);
-                back.GetComponent<MeshRenderer>().sharedMaterial = GameManager.Instance.Materials.Solid(bg, 0.3f);
+                back.AddComponent<MeshFilter>().sharedMesh = LabelQuad;
+                var br = back.AddComponent<MeshRenderer>();
+                br.sharedMaterial = GameManager.Instance.Materials.Solid(bg, 0.3f);
+                br.shadowCastingMode = ShadowCastingMode.Off;
             }
             return tm;
         }

@@ -21,6 +21,8 @@ unity/RealMarket3D/[Oo]bj/
 unity/RealMarket3D/[Bb]uild/
 unity/RealMarket3D/[Bb]uilds/
 unity/RealMarket3D/UserSettings/
+unity/RealMarket3D/Data/
+/editmode-results.xml
 unity/RealMarket3D/Packages/packages-lock.json
 unity/RealMarket3D/Assets/RealMarket/Generated/
 unity/RealMarket3D/Assets/RealMarket/Generated.meta

@@ -320,4 +320,4 @@ refreshCart().catch(() => {});
 route();
 
 // test ve hata ayıklama için
-window.__realmarket = { unityRunning, bridgeLog, refreshCart };
+window.__realmarket = { unityRunning, bridgeLog, refreshCart, sendToUnity };

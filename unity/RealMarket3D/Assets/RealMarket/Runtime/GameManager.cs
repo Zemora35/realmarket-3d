@@ -258,7 +258,12 @@ namespace RealMarket.Runtime
 
         public async Task RefreshCart()
         {
-            try { ApplyCart(await Api.GetCart(Session.Current)); }
+            try
+            {
+                ApplyCart(await Api.GetCart(Session.Current));
+                // sayfa (başka sekme/site değişikliği) rozetini ve mini sepeti güncel tutsun
+                Bridge.Emit(BridgeEvents.CartUpdated, LastCart);
+            }
             catch (ApiException e) when (!e.IsNetwork) { await RecoverSession(); }
         }
 
@@ -312,22 +317,63 @@ namespace RealMarket.Runtime
                 case BridgeEvents.NavigateTo:
                     if (Ready) NavigateToProduct((string)payload["productId"] ?? "");
                     break;
+                case BridgeEvents.DebugState:
+                    if (Config != null && Config.Debug) EmitDebugState();
+                    break;
+                case BridgeEvents.DebugLook:
+                    if (Ready && Config.Debug) Player.SetLook((float?)payload["yaw"] ?? Player.Yaw, (float?)payload["pitch"] ?? Player.Pitch);
+                    break;
+                case BridgeEvents.DebugAct:
+                    if (Ready && Config.Debug && Enum.TryParse((string)payload["act"] ?? "", true, out Act act)) MobileInput.Press(act);
+                    break;
             }
         }
 
-        /** Sayfadan "üründe göster": ürünün rafının erişim noktasına ışınlar. */
+        /**
+         * Sayfadan "rafta gör": ürünün raftaki ilk birimine 1 m mesafeye ışınlar ve kamerayı ürüne
+         * çevirir (nişangâh doğrudan üründe; E ile hemen alınabilir).
+         */
         void NavigateToProduct(string productId)
         {
-            if (!Planogram.SlotsByProduct.TryGetValue(productId, out var slots) || slots.Count == 0) return;
-            if (!Shelves.Shelves.TryGetValue(slots[0].ShelfId, out var shelf)) return;
-            var a = shelf.AccessPoint ?? shelf.Position;
-            PlanogramMath.FrontNormal(shelf.RotationY, out float nx, out float nz);
-            // rafa bakacak yön: −normal
-            float yaw = Mathf.Atan2(-nx, -nz) * Mathf.Rad2Deg;
+            int unit = -1;
+            if (Shelves.Index.ByProduct.TryGetValue(productId, out var list))
+                foreach (int i in list) if (!Shelves.Index.Units[i].Taken) { unit = i; break; }
+            if (unit < 0) { UI.Toast("Bu ürün rafta kalmadı"); return; }
+            var u = Shelves.Index.Units[unit];
+            var center = ShelfManager.ToUnity(u.Position) + Vector3.up * u.Half.Y;
+            var n = new Vector3(u.NormalX, 0, u.NormalZ);
+            var stand = center + n * 1.0f;
+            stand.y = 0.02f;
+            float yaw = Mathf.Atan2(-n.x, -n.z) * Mathf.Rad2Deg;
+            var dir = center - (stand + Vector3.up * Player.EyeHeight);
+            float pitch = -Mathf.Atan2(dir.y, new Vector2(dir.x, dir.z).magnitude) * Mathf.Rad2Deg;
             Cart.Release();
-            Player.Teleport(new Vector3(a.X, 0.02f, a.Z), yaw);
+            Player.Teleport(stand, yaw);
+            Player.SetLook(yaw, pitch);
             Flow.Enter(FlowState.Shopping);
             UI.Toast("Ürünün rafındasınız");
+        }
+
+        /** Test durumu (yalnızca ?debug=1): akış, nişangâh, eldeki ürün, konum, performans, sepet. */
+        void EmitDebugState()
+        {
+            var d = new Dictionary<string, object> { ["ready"] = Ready, ["flow"] = Flow.State.ToString() };
+            if (Ready)
+            {
+                var hovered = Interaction.Hovered >= 0 ? InfoOf(Interaction.Hovered) : null;
+                var held = Interaction.Held >= 0 ? InfoOf(Interaction.Held) : null;
+                var pos = Player.transform.position;
+                d["hoveredProductId"] = hovered?.Dto.Id ?? "";
+                d["heldProductId"] = held?.Dto.Id ?? "";
+                d["heldState"] = Interaction.Held >= 0 ? Interaction.machine.Get(Interaction.Held).ToString() : "";
+                d["x"] = pos.x; d["z"] = pos.z; d["yaw"] = Player.Yaw; d["pitch"] = Player.Pitch;
+                d["fps"] = Quality.AverageFps; d["quality"] = Quality.Profile.Tier.ToString();
+                d["units"] = Shelves.Index.Units.Count; d["drawn"] = Products.DrawnInstances; d["drawCalls"] = Products.DrawCalls;
+                d["modelsLoaded"] = Streaming.Loaded; d["modelsFailed"] = Streaming.Failed;
+                d["cartItems"] = LastCart?.ItemCount ?? 0; d["cartTotalKurus"] = LastCart?.TotalKurus ?? 0;
+                d["cartGrabbed"] = Cart.Grabbed; d["sessionId"] = Session.Current?.SessionId ?? "";
+            }
+            Bridge.Emit(BridgeEvents.DebugState, d);
         }
     }
 }

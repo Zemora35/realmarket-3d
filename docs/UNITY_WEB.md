@@ -1,6 +1,6 @@
 # RealMarket — Unity Web sürümü
 
-Bu belge Unity 6 LTS (URP) tabanlı web istemcisini, web sitesiyle entegrasyonunu ve bulutta derleme
+Bu belge Unity 6 (6000.6.7f1, URP 17.6) tabanlı web istemcisini, web sitesiyle entegrasyonunu ve bulutta derleme
 hattını anlatır. Three.js istemcisi (`apps/web`) **yedek** olarak korunur: Unity derlemesi yayımlanmamışsa
 site `/market` sayfasında Three.js sürümünü açar.
 
@@ -9,16 +9,17 @@ site `/market` sayfasında Three.js sürümünü açar.
 | Bileşen | Durum | Nasıl doğrulandı |
 | --- | --- | --- |
 | `RealMarket.Core` (saf C#: DTO/JSON, planogram açılımı, birim dizini + ışın seçimi, durum makinesi, araba yerleşimi, hareket/LOD matematiği, kalite profilleri, para biçimi, köprü zarfı) | Tamam | `dotnet test unity/RealMarket.Core.Tests` — 29/29 geçti; gerçek API sahnesiyle (`Fixtures/scene.json`) |
-| Unity runtime modülleri (15 yönetici + köprü + arayüz) | Kod yazıldı | **Unity derleyicisiyle henüz derlenmedi.** Yerelde Unity Editor yok (istenmedi); ilk derleme GameCI'da lisans secret'ları eklenince olur |
-| Editor `BuildScript` (URP varlıkları, malzeme şablonları, son işleme, sahne, WebGL Brotli) | Kod yazıldı | Aynı: GameCI'da çalışacak |
-| EditMode testleri (mesh sarımı, köprü, yapılandırma, yedek modeller) | Kod yazıldı | GameCI `unity-test-runner` ile çalışacak |
+| Unity runtime modülleri (15 yönetici + köprü + arayüz) | Tamam | Unity 6000.6.7f1 ile yerelde derlendi (0 hata, 0 uyarı); ilk derlemede 1 hata (CS0102) bulunup düzeltildi |
+| Editor `BuildScript` (URP varlıkları, malzeme şablonları, son işleme, sahne, WebGL Brotli) | Tamam | Yerelde WebGL derlemesi üretti: 11,9 MB (Brotli); ilk derleme 10,8 dk, sonrakiler ~5 dk |
+| EditMode testleri (mesh sarımı, köprü, yapılandırma, yedek modeller) | Tamam | Unity test-runner ile yerelde 5/5 |
 | Ürün GLB varlık hattı | Tamam | 42 ürün × 4 LOD, 5,9 MB; API `/api/models/*` ile `model/gltf-binary` olarak sunuluyor (API testi + gerçek dışa aktarım) |
 | API: CORS izin listesi + model uçları | Tamam | `apps/api/src/unity-web.test.ts` — 5/5 |
 | Web sitesi (`/`, `/market`, `/products`, `/cart`, `/checkout`, `/account`, `/admin`) | Tamam | Playwright, masaüstü + mobil (Pixel 7): 10/10 |
-| Sayfa ↔ Unity köprüsü (site tarafı) | Tamam | Unity'yi taklit eden **test dublörüyle** sözleşme testi. Gerçek Unity derlemesiyle uçtan uca test **yapılmadı** |
+| Sayfa ↔ Unity köprüsü | Tamam | Site tarafı test dublörüyle; ayrıca **gerçek Unity WebGL derlemesiyle uçtan uca** (`tests/unity`, masaüstü + mobil öykünme) |
+| Unity oynanışı (al → incele → arabaya koy → rafa bırak; site ↔ Unity sepet eşitleme) | Tamam | `tests/unity/unity.spec.ts`, köprü test komutlarıyla (`?debug=1`) |
 | CI/CD (GitHub Actions) | Yazıldı | İlk push ile çalışır; sonuçları Actions sekmesinde |
 | Üretim yığını (Docker, Caddy HTTPS, PostgreSQL, yedek) | Yazıldı | İmaj CI'da derlenip duman testinden geçer; **gerçek sunucuya dağıtım yapılmadı** (sunucu/alan adı bilgisi yok) |
-| Yük testi 100/500/1000 kullanıcı | Betik hazır | Yerelde 10 kullanıcılık duman testi; asıl ölçüm GitHub Actions'ta PostgreSQL ile (`load-test.yml`) |
+| Yük testi 100/500/1000 kullanıcı | Ölçüldü | GitHub Actions + PostgreSQL: üç aşamada da %0 hata; işlem hacmi ~248 istek/sn'de doyuyor (tek Node süreci); en yavaş uç `/scene` (1000 kullanıcıda p95 12,3 sn) |
 
 ## Mimari
 
@@ -88,7 +89,7 @@ Sayfadan gelen mesajlar 64 KB ile sınırlı, bilinmeyen türler yok sayılır.
 ## Bulutta derleme (yerel bilgisayar kullanılmaz)
 
 `.github/workflows/unity.yml` — GameCI (`unity-test-runner` + `unity-builder`, imaj
-`unityci/editor:ubuntu-6000.3.26f1-webgl-3`). Derleme yöntemi `RealMarket.EditorTools.BuildScript.BuildWebGL`:
+`unityci/editor:ubuntu-6000.6.7f1-webgl-3`). Derleme yöntemi `RealMarket.EditorTools.BuildScript.BuildWebGL`:
 
 1. Oyuncu ayarları: Linear renk, WebGL **Brotli**, açma yedeği kapalı (sunucu doğru başlıkları gönderir;
    `-rmDecompressionFallback` ile açılabilir), IL2CPP boyut optimizasyonu, düşük kod kırpma + `link.xml`.
@@ -99,15 +100,43 @@ Sayfadan gelen mesajlar 64 KB ile sınırlı, bilinmeyen türler yok sayılır.
 
 Deneysel WebGPU: iş akışını elle çalıştırırken `webgpu` seçeneği (`-rmWebGPU`; WebGL2 yedekli).
 
+### Yerelde derleme (Unity Hub ile giriş yapılmış bilgisayarda)
+
+Lisans bilgisayara bağlı olduğundan e-posta/parola gerekmez. Unity'nin `Library` klasörü birkaç GB
+tuttuğu için proje OneDrive dışındaki bir çalışma kopyasında derlenmelidir.
+
+```powershell
+& "C:\Program Files\Unity\Hub\Editor\6000.6.7f1\Editor\Unity.exe" -batchmode -nographics -buildTarget WebGL `
+  -projectPath unity\RealMarket3D -executeMethod RealMarket.EditorTools.BuildScript.BuildWebGL `
+  -customBuildPath unity\RealMarket3D\Builds\WebGL\RealMarket3D -logFile build.log
+$env:RM_GPU = "1"; npx playwright test -c tests/unity/playwright.config.ts   # gerçek GPU (Edge + D3D11)
+```
+
+### Köprü test komutları (yalnızca `?debug=1`)
+
+| Komut | Etki |
+| --- | --- |
+| `DEBUG_STATE` | Unity `DEBUG_STATE` olayıyla akış, nişangâhtaki/eldeki ürün, konum, fps, kalite, çizim, model ve sepet durumunu bildirir |
+| `DEBUG_LOOK` | `{ yaw, pitch }` ile bakış yönünü ayarlar |
+| `DEBUG_ACT` | `{ act }` ile `Interact`, `AddToCart`, `ReturnItem`, `GrabCart`, `Checkout`… eylemini tetikler |
+
+Üretim sayfası `debug` parametresi eklemez; parametre yoksa bu komutlar yok sayılır.
+
 ### Lisans etkinleştirme (bir kez, sizin yapmanız gerekir)
 
 Unity kişisel lisansı ücretsizdir ancak hesabınıza bağlıdır; kimlik bilgilerini ben giremem.
+`.ulf` dosyası oluşturulduğu bilgisayara bağlıdır: GitHub makinesinde geçersiz sayılır ve GameCI
+`UNITY_EMAIL` / `UNITY_PASSWORD` ile hesaba giriş yaparak etkinleştirir. Bu yüzden e-posta ve parola
+doğru olmalı ve hesapta iki adımlı doğrulama kapalı olmalıdır (Unity'nin önerisi: yalnızca CI için ayrı
+hesap). Google/Apple ile girilen hesaplarda önce https://id.unity.com üzerinden parola belirlenmelidir.
 
-1. Unity Hub'ı güncelleyin (yerelde 2.4.4 kurulu; güncel Hub gerekli) ve Unity hesabınızla giriş yapın.
+1. Unity Hub'ı (3.x) açın ve Unity hesabınızla giriş yapın.
 2. Hub → *Preferences / Settings → Licenses → Add → Get a free personal license*.
 3. Oluşan dosyayı açın: `C:\ProgramData\Unity\Unity_lic.ulf` (içeriğin tamamı XML'dir).
 4. GitHub → depo → *Settings → Secrets and variables → Actions → New repository secret*:
-   - `UNITY_LICENSE` = `.ulf` dosyasının tüm içeriği
+   - `UNITY_LICENSE` = `.ulf` dosyasının tüm içeriği. Windows PowerShell 5.1'de `--body (Get-Content …)`
+     kullanmayın (çift tırnakları siler); boru hattı kullanın:
+     `Get-Content "C:\ProgramData\Unity\Unity_lic.ulf" -Raw | gh secret set UNITY_LICENSE`
    - `UNITY_EMAIL` = Unity hesap e-postası
    - `UNITY_PASSWORD` = Unity hesap parolası
 5. *Actions → Unity WebGL → Run workflow*. İlk derleme önbelleksiz ~30–60 dk sürebilir.
@@ -122,14 +151,16 @@ Unity Editor'ü yerelde kurmanız gerekmez; Hub yalnızca lisans dosyasını ür
 | Vitest (Node 24) | API CORS + model uçları | ✅ 5/5 |
 | Chromium masaüstü 1280×720 | site + köprü sözleşmesi | ✅ 5/5 |
 | Chromium mobil (Pixel 7 öykünmesi) | site + köprü sözleşmesi | ✅ 5/5 |
-| Unity EditMode (GameCI) | mesh, köprü, yedek modeller | ⏳ lisans secret'larından sonra |
-| Unity WebGL — Chrome/Edge masaüstü | oynanış, 60 fps hedefi | ⏳ derleme yok |
-| Unity WebGL — Firefox / Safari 17+ | WebGL2 uyumluluğu | ⏳ derleme yok |
+| Unity EditMode (yerel, Unity 6000.6.7f1) | mesh, köprü, yapılandırma, yedek modeller | ✅ 5/5 |
+| Unity EditMode + WebGL derlemesi (GameCI, bulut) | aynı + derleme + uçtan uca | ⏳ lisans etkinleşmedi: GameCI hesap girişi reddedildi (UNITY_EMAIL/UNITY_PASSWORD) |
+| Unity WebGL — Edge masaüstü 1280×720, GTX 1650 (D3D11) | al / incele / arabaya koy / rafa bırak, sepet eşitleme | ✅ geçti — açılış 19,7 sn, 144 fps, Yüksek profil, 6 çizim çağrısı, 61 GLB, konsol hatası 0 |
+| Unity WebGL — Pixel 7 öykünmesi (aynı GPU) | aynı akış, mobil arayüz, Düşük profil | ✅ geçti — öykünme gerçek telefon performansını göstermez |
+| Unity WebGL — Firefox / Safari 17+ | WebGL2 uyumluluğu | ⏳ test edilmedi |
 | Gerçek Android / iOS cihaz | dokunmatik, bellek, ısı | ⏳ cihaz testi yapılmadı |
 
-Unity derlemesi çıktıktan sonra önerilen kabul kontrolleri: ilk yükleme süresi (Brotli + önbellek),
-Build klasörü boyutu (hedef < 25 MB sıkıştırılmış), masaüstü Yüksek profilde ≥ 55 fps, orta seviye
-Android'de Düşük profilde ≥ 30 fps, bellek < 1 GB.
+Kabul hedefleri: Build klasörü < 25 MB sıkıştırılmış (✅ 11,9 MB); masaüstü Yüksek profilde ≥ 55 fps
+(✅ 144 fps, GTX 1650); orta seviye Android'de Düşük profilde ≥ 30 fps ve bellek < 1 GB (⏳ gerçek
+cihazda ölçülmedi).
 
 ## Unity Render Streaming değerlendirmesi
 

@@ -119,15 +119,18 @@ namespace RealMarket.Runtime
             qualityLabel = q.GetComponentInChildren<Text>();
             statsText = Label(Node(canvas, "Stats", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -70), new Vector2(320, 120)), "", 15, TextAnchor.UpperRight, Muted, new Vector2(0, 0));
 
-            hover = Panel(canvas, "HoverCard", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 150), new Vector2(560, 120), Ink).gameObject;
+            // dokunmatikte alttaki eylem düğmeleriyle çakışmasın diye kart üstte durur
+            hover = InputAdapter.IsTouchDevice
+                ? Panel(canvas, "HoverCard", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -84), new Vector2(560, 120), Ink).gameObject
+                : Panel(canvas, "HoverCard", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 150), new Vector2(560, 120), Ink).gameObject;
             hoverText = Label(hover.transform, "", 22, TextAnchor.MiddleLeft, Color.white);
             hover.GetComponent<Image>().raycastTarget = false;
             hover.SetActive(false);
 
             inspect = Panel(canvas, "Inspect", new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-16, 0), new Vector2(420, 460), Ink).gameObject;
             inspectText = Label(Node(inspect.transform, "Body", new Vector2(0, 0), new Vector2(1, 1), C, new Vector2(0, 50), new Vector2(0, -100)), "", 21, TextAnchor.UpperLeft, Color.white);
-            Btn(inspect.transform, "Arabaya koy (G)", new Vector2(0, 0), new Vector2(0.5f, 0), new Vector2(0, 0), new Vector2(16, 16), new Vector2(-24, 56), Good, () => game.Interaction.AddHeldToCart());
-            Btn(inspect.transform, "Rafa bırak (R)", new Vector2(0.5f, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(-16, 16), new Vector2(-24, 56), new Color(0.35f, 0.38f, 0.45f), () => game.Interaction.ReturnHeld());
+            Btn(inspect.transform, InputAdapter.IsTouchDevice ? "Arabaya koy" : "Arabaya koy (G)", new Vector2(0, 0), new Vector2(0.5f, 0), new Vector2(0, 0), new Vector2(16, 16), new Vector2(-24, 56), Good, () => game.Interaction.AddHeldToCart());
+            Btn(inspect.transform, InputAdapter.IsTouchDevice ? "Rafa bırak" : "Rafa bırak (R)", new Vector2(0.5f, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(-16, 16), new Vector2(-24, 56), new Color(0.35f, 0.38f, 0.45f), () => game.Interaction.ReturnHeld());
             inspect.SetActive(false);
 
             cartPanel = Panel(canvas, "Cart", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, 0), new Vector2(520, 620), Ink).gameObject;
@@ -184,8 +187,10 @@ namespace RealMarket.Runtime
             mobile = Node(canvas, "Mobile", Vector2.zero, Vector2.one, C, Vector2.zero, Vector2.zero).gameObject;
             var look = Panel(mobile.transform, "LookArea", new Vector2(0.45f, 0), new Vector2(1, 0.85f), C, Vector2.zero, Vector2.zero, new Color(0, 0, 0, 0));
             look.gameObject.AddComponent<LookArea>();
-            var pad = Panel(mobile.transform, "Joystick", new Vector2(0, 0), new Vector2(0, 0), C, new Vector2(170, 170), new Vector2(220, 220), new Color(1, 1, 1, 0.12f));
-            var knob = Panel(pad.transform, "Knob", C, C, C, Vector2.zero, new Vector2(90, 90), new Color(1, 1, 1, 0.45f));
+            // açık zeminde de seçilsin: koyu yarı saydam taban + beyaz kenarlı topuz
+            var pad = Panel(mobile.transform, "Joystick", new Vector2(0, 0), new Vector2(0, 0), C, new Vector2(170, 170), new Vector2(220, 220), new Color(0.05f, 0.07f, 0.12f, 0.35f));
+            pad.gameObject.AddComponent<Outline>().effectColor = new Color(1, 1, 1, 0.5f);
+            var knob = Panel(pad.transform, "Knob", C, C, C, Vector2.zero, new Vector2(90, 90), new Color(1, 1, 1, 0.75f));
             knob.raycastTarget = false;
             var js = pad.gameObject.AddComponent<VirtualJoystick>();
             js.Knob = knob.rectTransform;

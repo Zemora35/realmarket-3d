@@ -47,8 +47,8 @@ namespace RealMarket.Runtime
                 if (y < 0.08f) y = 0.08f;
                 var pos = new Vector3(wx, y, wz);
                 bool promo = p.Dto.Promotion != null;
-                var tm = MarketGenerator.Label(Money.FormatTl(p.Dto.PriceKurus), pos, rot, 0.02f,
-                    promo ? Color.white : new Color(0.1f, 0.1f, 0.12f), promo ? new Color(0.86f, 0.12f, 0.16f) : new Color(1f, 0.93f, 0.2f), 0.09f, 0.036f, tagRoot);
+                var tm = MarketGenerator.Label(Money.FormatTl(p.Dto.PriceKurus), pos, rot, 0.017f,
+                    promo ? Color.white : new Color(0.1f, 0.1f, 0.12f), promo ? new Color(0.86f, 0.12f, 0.16f) : new Color(1f, 0.93f, 0.2f), 0.115f, 0.032f, tagRoot);
                 tm.gameObject.SetActive(false);
                 tags.Add((tm, pos));
             }

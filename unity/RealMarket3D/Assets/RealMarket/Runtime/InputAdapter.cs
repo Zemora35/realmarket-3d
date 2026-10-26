@@ -25,7 +25,11 @@ namespace RealMarket.Runtime
     public static class InputAdapter
     {
         public static bool IsTouchDevice =>
-#if ENABLE_INPUT_SYSTEM
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL'de Input System dokunmatik desteği olmayan masaüstü tarayıcıda da Touchscreen
+            // aygıtı oluşturuyor; mobil tarayıcı bilgisi (Application.isMobilePlatform) güvenilir.
+            Application.isMobilePlatform;
+#elif ENABLE_INPUT_SYSTEM
             Touchscreen.current != null || Application.isMobilePlatform;
 #else
             Input.touchSupported || Application.isMobilePlatform;

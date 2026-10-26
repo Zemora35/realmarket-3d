@@ -131,3 +131,43 @@ jobs:
           name: unity-webgl
           path: build/WebGL/RealMarket3D
           retention-days: 30
+
+  e2e:
+    name: Uçtan uca test (WebGL derlemesi tarayıcıda)
+    needs: [license, build]
+    if: needs.license.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: unity-webgl
+          path: build/unity
+      - run: npx playwright install --with-deps chromium
+      - name: API, web ve ürün modelleri
+        run: |
+          nohup pnpm --filter @realmarket/api dev > api.log 2>&1 &
+          nohup pnpm --filter @realmarket/web dev > web.log 2>&1 &
+          for i in $(seq 1 90); do
+            curl -sf http://127.0.0.1:3001/api/health >/dev/null && curl -sf http://localhost:5173/model-export.html >/dev/null && break
+            sleep 2
+          done
+          node tools/model-export/export.mjs
+      - name: Unity WebGL — al, incele, arabaya koy, rafa bırak, site ile sepet eşitleme (yazılımsal WebGL)
+        env:
+          UNITY_BUILD_DIR: build/unity
+        run: npx playwright test -c tests/unity/playwright.config.ts --project=desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unity-e2e
+          path: |
+            test-results/unity
+            api.log
