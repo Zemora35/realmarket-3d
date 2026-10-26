@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using RealMarket.Core;
 using UnityEngine;
@@ -72,35 +73,64 @@ namespace RealMarket.Runtime
 
         public void Cycle() => Apply((QualityTier)(((int)Profile.Tier + 1) % 4), true);
 
-        /** URP renderer özelliğini (ör. SSAO) adına göre aç/kapat. Liste iç alan olduğundan yansıma kullanılır. */
-        static void SetRendererFeature(UniversalRenderPipelineAsset urp, string nameContains, bool on)
+        /**
+         * URP renderer özelliğini (ör. SSAO) adına göre aç/kapat. Renderer verisi BuildScript'in malzeme
+         * kütüphanesine bağladığı referanstan alınır (URP sürümleri arasında değişen iç alanlara bağımlı
+         * değil); bulunamazsa eski yansıma yoluna düşer.
+         */
+        void SetRendererFeature(UniversalRenderPipelineAsset urp, string nameContains, bool on)
         {
             try
             {
-                var field = typeof(UniversalRenderPipelineAsset).GetField("m_RendererDataList", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (!(field?.GetValue(urp) is ScriptableRendererData[] list)) return;
-                foreach (var data in list)
+                var lists = new List<ScriptableRendererData>();
+                var lib = game != null ? game.Materials : null;
+                if (lib != null && lib.Renderer != null) lists.Add(lib.Renderer);
+                else
+                {
+                    var field = typeof(UniversalRenderPipelineAsset).GetField("m_RendererDataList", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (field?.GetValue(urp) is ScriptableRendererData[] arr) lists.AddRange(arr);
+                }
+                int changed = 0;
+                foreach (var data in lists)
                 {
                     if (data == null) continue;
                     foreach (var f in data.rendererFeatures)
-                        if (f != null && (f.name.Contains(nameContains) || f.GetType().Name.Contains("AmbientOcclusion"))) f.SetActive(on);
+                        if (f != null && (f.name.Contains(nameContains) || f.GetType().Name.Contains("AmbientOcclusion"))) { f.SetActive(on); changed++; }
                 }
+                if (changed == 0) Debug.LogWarning($"[RealMarket] renderer özelliği bulunamadı: {nameContains}");
             }
             catch (Exception e) { Debug.LogWarning("[RealMarket] renderer özelliği değiştirilemedi: " + e.Message); }
         }
 
+        readonly List<float> window = new List<float>(512);
+        int badWindows;
+        float readySince = -1f;
+
+        /**
+         * Otomatik kalite: 2 sn'lik pencerede en yavaş %10'luk dilimin (p90) kare süresine bakar.
+         * Ortalama tek seferlik takılmalardan bozuluyordu; ortanca ise ağır görünümlerdeki sürekli
+         * yavaşlamayı hiç görmüyordu. Açılıştan sonraki 10 sn yok sayılır; iki pencere üst üste
+         * hedefin belirgin altındaysa bir kademe iner.
+         */
         void Update()
         {
-            accum += Time.unscaledDeltaTime;
+            float dt = Time.unscaledDeltaTime;
+            accum += dt;
             frames++;
+            window.Add(dt);
             if (accum < 2f) return;
             AverageFps = frames / accum;
-            accum = 0; frames = 0;
-            if (!AutoAdjust || Profile.Tier == QualityTier.Low || Time.unscaledTime - lastChange < 8f) return;
-            if (game == null || !game.Ready || game.Flow.State != FlowState.Shopping) return;
-            if (AverageFps < Profile.TargetFrameRate * 0.72f)
+            window.Sort();
+            float p90Fps = 1f / Mathf.Max(1e-4f, window[Mathf.Min(window.Count - 1, window.Count * 9 / 10)]);
+            accum = 0; frames = 0; window.Clear();
+            if (game == null || !game.Ready || game.Flow.State != FlowState.Shopping) { badWindows = 0; return; }
+            if (readySince < 0f) readySince = Time.unscaledTime;
+            if (!AutoAdjust || Profile.Tier == QualityTier.Low || Time.unscaledTime - lastChange < 8f || Time.unscaledTime - readySince < 10f) return;
+            badWindows = p90Fps < Profile.TargetFrameRate * 0.6f ? badWindows + 1 : 0;
+            if (badWindows >= 2)
             {
-                Debug.Log($"[RealMarket] ortalama {AverageFps:0} fps → kalite düşürülüyor");
+                badWindows = 0;
+                Debug.Log($"[RealMarket] p90 {p90Fps:0} fps → kalite düşürülüyor");
                 Apply((QualityTier)((int)Profile.Tier - 1));
             }
         }

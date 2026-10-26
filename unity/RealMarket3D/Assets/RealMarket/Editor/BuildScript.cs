@@ -50,13 +50,17 @@ namespace RealMarket.EditorTools
         {
             SetupProject();
             string output = Arg("-customBuildPath") ?? Environment.GetEnvironmentVariable("RM_BUILD_PATH") ?? "Builds/WebGL";
+            // -rmDevelopment: tanılama derlemesi — çalışma anında derlenen her gölgelendirici varyantı
+            // konsola yazılır (takılma kaynağını bulmak için). Yayın derlemelerinde kapalıdır.
+            bool dev = Flag("-rmDevelopment");
+            GraphicsSettings.logWhenShaderIsCompiled = dev;
             var opts = new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },
                 locationPathName = output,
                 target = BuildTarget.WebGL,
                 targetGroup = BuildTargetGroup.WebGL,
-                options = BuildOptions.None,
+                options = dev ? BuildOptions.Development : BuildOptions.None,
             };
             var report = BuildPipeline.BuildPlayer(opts);
             var s = report.summary;
@@ -227,6 +231,7 @@ namespace RealMarket.EditorTools
             });
             lib.Unlit = Template($"{Gen}/M_Unlit.mat", unlit, m => { });
             lib.TextMaterial = UIManager.DefaultFont != null ? UIManager.DefaultFont.material : null;
+            lib.Renderer = AssetDatabase.LoadAssetAtPath<UniversalRendererData>($"{Gen}/URP-Renderer.asset");
             EditorUtility.SetDirty(lib);
             return lib;
         }

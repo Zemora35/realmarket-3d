@@ -29,7 +29,10 @@ namespace RealMarket.Core
             }
         }
 
-        /** Başlangıç önerisi: mobil düşük/orta, tümleşik GPU orta, ayrık GPU yüksek. */
+        /**
+         * Başlangıç önerisi: mobil düşük/orta, tümleşik GPU düşük, ayrık GPU yüksek/ultra.
+         * Intel UHD (ANGLE/D3D11) ölçümü: Orta'da tam mağaza görünümünde p99 ≈ 35 ms, Düşük'te ≈ 21 ms.
+         */
         public static QualityTier Recommend(bool mobile, string gpu, int systemMemoryMb)
         {
             string g = (gpu ?? "").ToLowerInvariant();
@@ -37,6 +40,7 @@ namespace RealMarket.Core
             if (mobile) return (g.Contains("apple") || g.Contains("adreno (tm) 7") || g.Contains("adreno (tm) 8")) && systemMemoryMb >= 4000 ? QualityTier.Medium : QualityTier.Low;
             if (g.Contains("rtx") || g.Contains("rx 6") || g.Contains("rx 7")) return QualityTier.Ultra;
             if (g.Contains("nvidia") || g.Contains("geforce") || g.Contains("radeon rx")) return QualityTier.High;
+            if (g.Contains("intel") || g.Contains("radeon graphics") || g.Contains("radeon(tm) graphics")) return QualityTier.Low;
             return QualityTier.Medium;
         }
     }
@@ -92,6 +96,7 @@ namespace RealMarket.Core
         public const string DebugState = "DEBUG_STATE";
         public const string DebugLook = "DEBUG_LOOK";
         public const string DebugAct = "DEBUG_ACT";
+        public const string DebugToggle = "DEBUG_TOGGLE";
 
         public static string Envelope(string type, object payload) =>
             Json.Write(new BridgeMessage { Type = type, Payload = payload, Version = 1 });

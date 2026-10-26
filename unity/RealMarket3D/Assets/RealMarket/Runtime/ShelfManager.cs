@@ -56,15 +56,31 @@ namespace RealMarket.Runtime
 
         void Update()
         {
-            if (Time.time < nextTagCheck || Camera.main == null) return;
+            if (forceTags || Time.time < nextTagCheck || Camera.main == null) return;
             nextTagCheck = Time.time + 0.3f;
             Vector3 eye = Camera.main.transform.position;
             float max2 = TagVisibleDistance * TagVisibleDistance;
+            int active = 0;
             foreach (var (tag, pos) in tags)
             {
-                bool on = (pos - eye).sqrMagnitude < max2;
+                bool on = TagsEnabled && (pos - eye).sqrMagnitude < max2;
                 if (tag.gameObject.activeSelf != on) tag.gameObject.SetActive(on);
+                if (on) active++;
             }
+            ActiveTags = active;
+        }
+
+        bool forceTags;
+        /** Tanılama (DEBUG_TOGGLE): fiyat etiketlerini tamamen kapatır. */
+        public bool TagsEnabled = true;
+        public int ActiveTags { get; private set; }
+
+        /** Isınma turu: tüm etiketleri geçici olarak açar (yazı gölgelendiricisi önceden derlensin). */
+        public void ShowAllTags(bool on)
+        {
+            forceTags = on;
+            foreach (var (tag, _) in tags) tag.gameObject.SetActive(on);
+            nextTagCheck = 0f;
         }
 
         public ShelfUnit Unit(int i) => i >= 0 && i < Index.Units.Count ? Index.Units[i] : null;

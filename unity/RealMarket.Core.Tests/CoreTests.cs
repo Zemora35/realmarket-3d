@@ -369,7 +369,9 @@ namespace RealMarket.Core.Tests
         public void Recommend_PicksSensibleTiers()
         {
             Assert.That(QualityProfile.Recommend(false, "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11)", 8000), Is.EqualTo(QualityTier.High));
-            Assert.That(QualityProfile.Recommend(false, "ANGLE (Intel, Intel(R) UHD Graphics)", 8000), Is.EqualTo(QualityTier.Medium));
+            Assert.That(QualityProfile.Recommend(false, "ANGLE (Intel, Intel(R) UHD Graphics)", 8000), Is.EqualTo(QualityTier.Low));
+            Assert.That(QualityProfile.Recommend(false, "ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11)", 8000), Is.EqualTo(QualityTier.Low));
+            Assert.That(QualityProfile.Recommend(false, "Apple M2", 8000), Is.EqualTo(QualityTier.Medium));
             Assert.That(QualityProfile.Recommend(false, "Google SwiftShader", 8000), Is.EqualTo(QualityTier.Low));
             Assert.That(QualityProfile.Recommend(true, "Mali-G52", 3000), Is.EqualTo(QualityTier.Low));
             Assert.That(QualityProfile.Recommend(true, "Apple GPU", 6000), Is.EqualTo(QualityTier.Medium));
