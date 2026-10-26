@@ -38,12 +38,12 @@ namespace RealMarket.Runtime
         ModelManifestDto manifest;
         Transform hiddenRoot;
         int active;
-        readonly List<Request> queue = new List<Request>();
+        readonly List<LoadRequest> queue = new List<LoadRequest>();
         readonly Dictionary<string, ModelLod> cache = new Dictionary<string, ModelLod>();
         readonly HashSet<string> requested = new HashSet<string>();
         readonly List<GltfImport> imports = new List<GltfImport>();
 
-        struct Request { public string Key; public string Url; public float Priority; public Action<ModelLod> Done; }
+        struct LoadRequest { public string Key; public string Url; public float Priority; public Action<ModelLod> Done; }
 
         public event Action<string, int, ModelLod> ModelReady; // productId, lod, model
 
@@ -98,7 +98,7 @@ namespace RealMarket.Runtime
             if (url == null) return;
             requested.Add(key);
             int lodCopy = lod;
-            queue.Add(new Request { Key = key, Url = url, Priority = priority, Done = m => ModelReady?.Invoke(productId, lodCopy, m) });
+            queue.Add(new LoadRequest { Key = key, Url = url, Priority = priority, Done = m => ModelReady?.Invoke(productId, lodCopy, m) });
         }
 
         void Update()
@@ -113,7 +113,7 @@ namespace RealMarket.Runtime
             }
         }
 
-        async Task Load(Request r)
+        async Task Load(LoadRequest r)
         {
             active++;
             try
