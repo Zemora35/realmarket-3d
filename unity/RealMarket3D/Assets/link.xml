@@ -1,0 +1,6 @@
+<!-- IL2CPP kod kırpması: JSON (yansıma ile doldurulan) DTO'lar ve Newtonsoft korunur. -->
+<linker>
+  <assembly fullname="RealMarket.Core" preserve="all" />
+  <assembly fullname="Newtonsoft.Json" preserve="all" />
+  <assembly fullname="glTFast" preserve="all" />
+</linker>

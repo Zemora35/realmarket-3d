@@ -1,0 +1,173 @@
+name: Unity WebGL
+
+# Unity 6 LTS projesini GameCI ile bulutta test eder ve WebGL (Brotli) olarak derler.
+# Gerekli depo secret'ları (kişisel lisans): UNITY_LICENSE (.ulf içeriği), UNITY_EMAIL, UNITY_PASSWORD.
+# Secret'lar yoksa iş akışı başarısız olmaz; Unity adımları gerekçesiyle atlanır.
+
+on:
+  push:
+    branches: [master, main]
+    paths: ['unity/**', '.github/workflows/unity.yml']
+  workflow_dispatch:
+    inputs:
+      webgpu:
+        description: "Deneysel WebGPU grafik API'si (WebGL2 yedekli)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: unity-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  PROJECT_PATH: unity/RealMarket3D
+
+jobs:
+  license:
+    name: Lisans denetimi
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+        run: |
+          if { [ -n "$UNITY_LICENSE" ] || [ -n "$UNITY_SERIAL" ]; } && [ -n "$UNITY_EMAIL" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Unity lisans secret'ları tanımlı değil — Unity testleri ve WebGL derlemesi atlandı."
+            {
+              echo "### Unity derlemesi atlandı"
+              echo "Depo ayarlarına şu secret'ları ekleyin: \`UNITY_LICENSE\` (Unity_lic.ulf içeriği), \`UNITY_EMAIL\`, \`UNITY_PASSWORD\`."
+              echo "Ayrıntı: docs/UNITY_WEB.md → Lisans etkinleştirme."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  test:
+    name: EditMode testleri (GameCI)
+    needs: license
+    if: needs.license.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PROJECT_PATH }}/Library
+          key: Library-test-${{ hashFiles('unity/RealMarket3D/Packages/manifest.json', 'unity/RealMarket3D/ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: Library-test-
+      - uses: game-ci/unity-test-runner@v4
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          testMode: editmode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Unity EditMode
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unity-test-results
+          path: ${{ steps.tests.outputs.artifactsPath }}
+
+  build:
+    name: WebGL derlemesi (GameCI)
+    needs: [license, test]
+    if: needs.license.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Disk alanı aç (Unity imajı büyük)
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          android: true
+          dotnet: false
+          haskell: true
+          large-packages: false
+          swap-storage: false
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PROJECT_PATH }}/Library
+          key: Library-WebGL-${{ hashFiles('unity/RealMarket3D/Packages/manifest.json', 'unity/RealMarket3D/ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: Library-WebGL-
+      - uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          targetPlatform: WebGL
+          buildName: RealMarket3D
+          buildsPath: build
+          buildMethod: RealMarket.EditorTools.BuildScript.BuildWebGL
+          customParameters: ${{ inputs.webgpu && '-rmWebGPU' || '' }}
+          allowDirtyBuild: true
+      - name: Derleme boyutları
+        run: |
+          {
+            echo "### Unity WebGL derlemesi"
+            echo '```'
+            du -ah build/WebGL/RealMarket3D/Build | sort -h
+            cat build/WebGL/RealMarket3D/build-report.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-webgl
+          path: build/WebGL/RealMarket3D
+          retention-days: 30
+
+  e2e:
+    name: Uçtan uca test (WebGL derlemesi tarayıcıda)
+    needs: [license, build]
+    if: needs.license.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: unity-webgl
+          path: build/unity
+      - run: npx playwright install --with-deps chromium
+      - name: API, web ve ürün modelleri
+        run: |
+          nohup pnpm --filter @realmarket/api dev > api.log 2>&1 &
+          nohup pnpm --filter @realmarket/web dev > web.log 2>&1 &
+          for i in $(seq 1 90); do
+            curl -sf http://127.0.0.1:3001/api/health >/dev/null && curl -sf http://localhost:5173/model-export.html >/dev/null && break
+            sleep 2
+          done
+          node tools/model-export/export.mjs
+      - name: Unity WebGL — al, incele, arabaya koy, rafa bırak, site ile sepet eşitleme (yazılımsal WebGL)
+        env:
+          UNITY_BUILD_DIR: build/unity
+        run: npx playwright test -c tests/unity/playwright.config.ts --project=desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unity-e2e
+          path: |
+            test-results/unity
+            api.log

@@ -1,0 +1,69 @@
+name: Yük testi
+
+# API'yi gerçek PostgreSQL ile GitHub'ın sunucusunda çalıştırır ve 100 / 500 / 1000 eşzamanlı
+# sanal kullanıcıyla alışveriş akışını ölçer (yerel bilgisayar kullanılmaz).
+# Not: API ve yük üreticisi aynı 4 çekirdekli makinededir; sonuçlar üretim kapasitesi değil,
+# göreli darboğaz göstergesidir.
+
+on:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: 'Aşamalar (virgülle)'
+        default: '100,500,1000'
+      duration:
+        description: 'Aşama süresi (sn)'
+        default: '60'
+  schedule:
+    - cron: '0 3 * * 1'
+  # yük testi betiği veya iş akışı değişince (her dalda) varsayılan aşamalarla yeniden ölçülür
+  push:
+    paths: ['tests/load/**', '.github/workflows/load-test.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: realmarket
+          POSTGRES_PASSWORD: realmarket-ci
+          POSTGRES_DB: realmarket
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U realmarket" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://realmarket:realmarket-ci@localhost:5432/realmarket
+      NODE_ENV: production
+      API_HOST: 127.0.0.1
+      API_PORT: '3001'
+      SEED_ADMIN_EMAIL: admin@ci.local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: API'yi başlat
+        run: |
+          export AUTH_SECRET="$(openssl rand -hex 32)"
+          export SEED_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+          nohup pnpm --filter @realmarket/api start > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3001/api/health && exit 0; sleep 2; done
+          cat api.log; exit 1
+      - name: Yük testi
+        run: node tests/load/load-test.mjs --url http://127.0.0.1:3001 --users "${{ inputs.users || '100,500,1000' }}" --duration "${{ inputs.duration || '60' }}" --ramp 20 --out load-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-report
+          path: |
+            load-report.json
+            api.log

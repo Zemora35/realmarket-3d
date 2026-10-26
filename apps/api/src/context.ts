@@ -12,6 +12,10 @@ export interface AppContext {
   offUserAgent: string;
   /** Testlerde ağ çağrısını taklit etmek için. */
   fetchImpl?: typeof fetch;
+  /** Ürün GLB modelleri ve manifest.json klasörü (tools/model-export çıktısı). */
+  modelsDir?: string;
+  /** Başka kökenden sunulan site/Unity derlemesi için CORS izin listesi. */
+  corsOrigins?: string[];
 }
 
 declare module 'fastify' {

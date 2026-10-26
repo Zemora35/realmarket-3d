@@ -27,5 +27,7 @@ export const env = {
   seedAdminEmail: process.env.SEED_ADMIN_EMAIL ?? 'admin@realmarket.local',
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || undefined,
   storageDir: resolve(apiRoot, process.env.STORAGE_DIR ?? 'storage'),
+  modelsDir: resolve(apiRoot, process.env.MODELS_DIR ?? 'storage/models'),
+  corsOrigins: (process.env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   offUserAgent: process.env.OFF_USER_AGENT ?? 'RealMarket3D/0.1 (development)',
 };

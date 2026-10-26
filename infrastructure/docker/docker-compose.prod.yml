@@ -1,0 +1,103 @@
+# RealMarket — sağlayıcıdan bağımsız üretim yığını (tek VPS):
+#   caddy (HTTPS, statik site + Unity WebGL + Three.js yedek + yönetim) → api (Fastify) → postgres
+#   + günlük pg_dump yedeği (7 gün saklanır)
+#
+# Sunucuda kullanım (deploy iş akışı "release" paketini bu düzende açar):
+#   release/
+#     docker-compose.prod.yml   Caddyfile   .env   public/{site,unity,three,admin,models}
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+name: realmarket
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-realmarket}
+      POSTGRES_USER: ${POSTGRES_USER:-realmarket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD gerekli}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # dış ağa port açılmaz; yalnızca api erişir
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/zemora35/realmarket-3d-api:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-realmarket}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-realmarket}
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET gerekli}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@realmarket.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD gerekli}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      OFF_USER_AGENT: ${OFF_USER_AGENT:-RealMarket3D/1.0}
+      STORAGE_DIR: /data/storage
+      MODELS_DIR: /data/models
+    volumes:
+      - storage:/data/storage
+      - ./public/models:/data/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./public/site:/srv/site:ro
+      - ./public/unity:/srv/unity:ro
+      - ./public/three:/srv/three:ro
+      - ./public/admin:/srv/admin:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-realmarket}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-realmarket}
+    volumes:
+      - backups:/backups
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          f=/backups/realmarket-$$(date +%Y%m%d-%H%M).sql.gz
+          pg_dump --no-owner | gzip > "$$f" && echo "yedek: $$f"
+          find /backups -name 'realmarket-*.sql.gz' -mtime +7 -delete
+          sleep 86400
+        done
+
+volumes:
+  pgdata:
+  storage:
+  backups:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,78 @@
+# RealMarket — Caddy (otomatik HTTPS / Let's Encrypt).
+#   /           web sitesi (SPA)          /srv/site
+#   /api/*      API                       api:3001
+#   /unity/*    Unity WebGL (Brotli)      /srv/unity
+#   /3d/*       Three.js yedek istemci    /srv/three
+#   /admin/*    yönetim paneli            /srv/admin
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN:localhost} {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		# Unity WebGL: WebAssembly derlemesi için 'wasm-unsafe-eval'; Unity çatısı bazı tarayıcılarda
+		# dinamik kod ürettiğinden 'unsafe-eval' de gereklidir. Dış kaynak yüklenmez.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' blob: data:; media-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:3001 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Unity derlemesi önceden sıkıştırılmıştır (.br). Tarayıcının açması için Content-Encoding,
+	# WebAssembly akış derlemesi için Content-Type: application/wasm zorunludur.
+	handle_path /unity/* {
+		root * /srv/unity
+		@br path *.br
+		header @br Content-Encoding br
+		@gz path *.gz
+		header @gz Content-Encoding gzip
+		@wasm path *.wasm *.wasm.br *.wasm.gz
+		header @wasm Content-Type application/wasm
+		@js path *.js.br *.js.gz
+		header @js Content-Type application/javascript
+		@data path *.data *.data.br *.data.gz *.symbols.json.br
+		header @data Content-Type application/octet-stream
+		@build path /Build/*
+		header @build Cache-Control "public, max-age=3600, must-revalidate"
+		file_server
+	}
+
+	handle_path /3d/* {
+		root * /srv/three
+		encode zstd gzip
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle_path /admin/* {
+		root * /srv/admin
+		encode zstd gzip
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle {
+		root * /srv/site
+		encode zstd gzip
+		header /assets/* Cache-Control "public, max-age=300"
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

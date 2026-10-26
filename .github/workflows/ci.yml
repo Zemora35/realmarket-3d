@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node — lint, tür denetimi, birim/API testleri, site testleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Playwright tarayıcısı
+        run: npx playwright install --with-deps chromium
+      - name: Web sitesi + köprü sözleşmesi (masaüstü ve mobil)
+        run: npx playwright test -c tests/site/playwright.config.ts
+
+  models:
+    name: Varlık hattı — ürün GLB modelleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      - name: API ve web sunucularını başlat
+        run: |
+          nohup pnpm --filter @realmarket/api start > api.log 2>&1 &
+          nohup pnpm --filter @realmarket/web dev > web.log 2>&1 &
+          for i in $(seq 1 90); do
+            curl -sf http://127.0.0.1:3001/api/health >/dev/null && curl -sf http://localhost:5173/model-export.html >/dev/null && exit 0
+            sleep 2
+          done
+          cat api.log web.log; exit 1
+      - name: GLB dışa aktarımı
+        run: node tools/model-export/export.mjs --out build/models
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-models
+          path: build/models
+          retention-days: 30
+
+  core-dotnet:
+    name: Unity çekirdek mantığı (.NET, Unity Editor gerekmez)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test unity/RealMarket.Core.Tests --logger "trx;LogFileName=core.trx" --results-directory test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-test-results
+          path: test-results

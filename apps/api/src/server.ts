@@ -30,6 +30,8 @@ const app = await buildApp(
     payment: new DemoPaymentProvider(),
     authSecret: env.authSecret,
     offUserAgent: env.offUserAgent,
+    modelsDir: env.modelsDir,
+    corsOrigins: env.corsOrigins,
   },
   { logger: env.isProd },
 );
